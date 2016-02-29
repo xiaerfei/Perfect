@@ -23,7 +23,11 @@
 //	program. If not, see <http://www.perfect.org/AGPL_3_0_With_Perfect_Additional_Terms.txt>.
 //
 
-import Foundation
+#if os(Linux)
+import LinuxBridge
+#else
+import Darwin
+#endif
 
 /// This class permits an UnsafeMutablePointer to be used as a GeneratorType
 public struct GenerateFromPointer<T> : GeneratorType {
@@ -101,7 +105,7 @@ public class UTF8Encoding {
 	
 	/// Decode a String into an array of UInt8.
 	public static func decode(str: String) -> Array<UInt8> {
-		return Array<UInt8>(str.utf8)
+		return [UInt8](str.utf8)
 	}
 }
 
@@ -170,16 +174,47 @@ extension String {
 		return ret
 	}
 	
-	public var stringByDecodingURL: String? {
+	
+	// Utility - not sure if it makes the most sense to have here or outside or elsewhere
+	static func byteFromHexDigits(one c1v: UInt8, two c2v: UInt8) -> UInt8? {
 		
-		let percent: UInt8 = 37
-		let plus: UInt8 = 43
 		let capA: UInt8 = 65
 		let capF: UInt8 = 70
 		let lowA: UInt8 = 97
 		let lowF: UInt8 = 102
 		let zero: UInt8 = 48
 		let nine: UInt8 = 57
+		
+		var newChar = UInt8(0)
+		
+		if c1v >= capA && c1v <= capF {
+			newChar = c1v - capA + 10
+		} else if c1v >= lowA && c1v <= lowF {
+			newChar = c1v - lowA + 10
+		} else if c1v >= zero && c1v <= nine {
+			newChar = c1v - zero
+		} else {
+			return nil
+		}
+		
+		newChar *= 16
+		
+		if c2v >= capA && c2v <= capF {
+			newChar += c2v - capA + 10
+		} else if c2v >= lowA && c2v <= lowF {
+			newChar += c2v - lowA + 10
+		} else if c2v >= zero && c2v <= nine {
+			newChar += c2v - zero
+		} else {
+			return nil
+		}
+		return newChar
+	}
+	
+	public var stringByDecodingURL: String? {
+		
+		let percent: UInt8 = 37
+		let plus: UInt8 = 43
 		let space: UInt8 = 32
 		
 		var bytesArray = [UInt8]()
@@ -187,8 +222,7 @@ extension String {
 		var g = self.utf8.generate()
 		while let c = g.next() {
 			if c == percent {
-				var newChar = UInt8(0)
-				
+
 				guard let c1v = g.next() else {
 					return nil
 				}
@@ -196,25 +230,7 @@ extension String {
 					return nil
 				}
 				
-				if c1v >= capA && c1v <= capF {
-					newChar = c1v - capA + 10
-				} else if c1v >= lowA && c1v <= lowF {
-					newChar = c1v - lowA + 10
-				} else if c1v >= zero && c1v <= nine {
-					newChar = c1v - zero
-				} else {
-					return nil
-				}
-				
-				newChar *= 16
-				
-				if c2v >= capA && c2v <= capF {
-					newChar += c2v - capA + 10
-				} else if c2v >= lowA && c2v <= lowF {
-					newChar += c2v - lowA + 10
-				} else if c2v >= zero && c2v <= nine {
-					newChar += c2v - zero
-				} else {
+				guard let newChar = String.byteFromHexDigits(one: c1v, two: c2v) else {
 					return nil
 				}
 				
@@ -228,6 +244,67 @@ extension String {
 		
 		return UTF8Encoding.encode(bytesArray)
 	}
+	
+	public var decodeHex: [UInt8]? {
+		
+		var bytesArray = [UInt8]()
+		var g = self.utf8.generate()
+		while let c1v = g.next() {
+			
+			guard let c2v = g.next() else {
+				return nil
+			}
+			
+			guard let newChar = String.byteFromHexDigits(one: c1v, two: c2v) else {
+				return nil
+			}
+			
+			bytesArray.append(newChar)
+		}
+		return bytesArray
+	}
+}
+
+extension String {
+	/// Parse uuid string
+	/// Results undefined if the string is not a valid UUID
+	public func asUUID() -> uuid_t {
+		let u = UnsafeMutablePointer<UInt8>.alloc(sizeof(uuid_t))
+		defer {
+			u.destroy() ; u.dealloc(sizeof(uuid_t))
+		}
+		uuid_parse(self, u)
+		return uuid_t(u[0], u[1], u[2], u[3], u[4], u[5], u[6], u[7], u[8], u[9], u[10], u[11], u[12], u[13], u[14], u[15])
+	}
+	
+	public static func fromUUID(uuid: uuid_t) -> String {
+		let u = UnsafeMutablePointer<UInt8>.alloc(sizeof(uuid_t))
+		let unu = UnsafeMutablePointer<Int8>.alloc(37) // as per spec. 36 + null
+		
+		defer {
+			u.destroy() ; u.dealloc(sizeof(uuid_t))
+			unu.destroy() ; unu.dealloc(37)
+		}
+		u[0] = uuid.0;u[1] = uuid.1;u[2] = uuid.2;u[3] = uuid.3;u[4] = uuid.4;u[5] = uuid.5;u[6] = uuid.6;u[7] = uuid.7
+		u[8] = uuid.8;u[9] = uuid.9;u[10] = uuid.10;u[11] = uuid.11;u[12] = uuid.12;u[13] = uuid.13;u[14] = uuid.14;u[15] = uuid.15
+		uuid_unparse_lower(u, unu)
+		
+		return String.fromCString(unu)!
+	}
+}
+
+public func empty_uuid() -> uuid_t {
+	return uuid_t(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+}
+
+public func random_uuid() -> uuid_t {
+	let u = UnsafeMutablePointer<UInt8>.alloc(sizeof(uuid_t))
+	defer {
+		u.destroy() ; u.dealloc(sizeof(uuid_t))
+	}
+	uuid_generate_random(u)
+	// is there a better way?
+	return uuid_t(u[0], u[1], u[2], u[3], u[4], u[5], u[6], u[7], u[8], u[9], u[10], u[11], u[12], u[13], u[14], u[15])
 }
 
 extension String {
@@ -514,8 +591,21 @@ extension String {
 //		let ary = s.pathComponents(false) // get rid of slash runs
 //		return absolute ? "/" + ary.joinWithSeparator(String(pathSeparator)) : ary.joinWithSeparator(String(pathSeparator))
 	}
+	#if os(Linux)
+	func hasPrefix(of: String) -> Bool {
+		let c1 = self.characters
+		let c2 = of.characters
+		
+		return c1.count >= c2.count && String(c1.prefix(c2.count)) == of
+	}
 	
+	func hasSuffix(of: String) -> Bool {
+		let c1 = self.characters
+		let c2 = of.characters
 	
+		return c1.count >= c2.count && String(c1.suffix(c2.count)) == of
+	}
+	#endif
 }
 
 

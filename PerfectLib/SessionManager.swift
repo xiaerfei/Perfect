@@ -23,9 +23,6 @@
 //	program. If not, see <http://www.perfect.org/AGPL_3_0_With_Perfect_Additional_Terms.txt>.
 //
 
-
-import Foundation
-
 let perfectSessionDB = "perfect_sessions"
 let perfectSessionNamePrefix = "_PerfectSessionTracker_"
 
@@ -164,7 +161,7 @@ public class SessionManager {
 						try stmt.bind(1, fullKey)
 					},
 					handleRow: {
-						(stmt: SQLiteStmt, count: Int) -> () in
+						[unowned self] (stmt: SQLiteStmt, count: Int) -> () in
 						do {
 							let lastAccess = stmt.columnDouble(1)
 							let expireMinutes = stmt.columnDouble(2)
@@ -182,7 +179,7 @@ public class SessionManager {
 							} else {
 								self.result = .Load
 								let data = stmt.columnText(0)
-								self.dictionary = try JSONDecode().decode(data) as? JSONDictionaryType
+								self.dictionary = try JSONDecoder().decode(data) as? JSONDictionaryType
 							}
 						} catch {}
 					})
@@ -203,14 +200,14 @@ public class SessionManager {
 	
 	/// !FIX! needs to support all the special cookie options
 	func initializeForResponse(response: WebResponse) {
-		let c = Cookie()
-		c.name = perfectSessionNamePrefix + self.configuration.name
-		c.value = self.configuration.id
-		c.expiresIn = Double(self.configuration.cookieExpires)
-		c.domain = self.configuration.domain
-		c.path = self.configuration.path
-		c.secure = self.configuration.secure
-		c.httpOnly = self.configuration.httpOnly
+		let c = Cookie(name: perfectSessionNamePrefix + self.configuration.name,
+			value: self.configuration.id,
+			domain: self.configuration.domain,
+			expires: nil,
+			expiresIn: Double(self.configuration.cookieExpires),
+			path: self.configuration.path,
+			secure: self.configuration.secure,
+			httpOnly: self.configuration.httpOnly)
 		response.addCookie(c)
 	}
 	
@@ -231,13 +228,13 @@ public class SessionManager {
 	func commit() throws {
 		// save values
 		let fullKey = self.configuration.name + ":" + self.configuration.id
-		let encoded = try JSONEncode().encode(self.dictionary!)
+		let encoded = try JSONEncoder().encode(self.dictionary!)
 		let sqlite = try SQLite(PerfectServer.staticPerfectServer.homeDir() + serverSQLiteDBs + perfectSessionDB)
 		defer { sqlite.close() }
 		
 		try sqlite.execute("INSERT OR REPLACE INTO sessions (data,last_access,expire_minutes,session_key) " +
 							"VALUES (?,?,?,?)", doBindings: {
-			(stmt: SQLiteStmt) -> () in
+			[unowned self] (stmt: SQLiteStmt) -> () in
 			
 			try stmt.bind(1, UTF8Encoding.decode(encoded))
 			try stmt.bind(2, self.getNowSeconds())
@@ -275,7 +272,7 @@ public class SessionManager {
 	/// Generate a presumably unique session id
 	static public func generateSessionKey() -> String {
 		
-		return NSUUID().UUIDString
+		return String.fromUUID(random_uuid())
 	}
 }
 

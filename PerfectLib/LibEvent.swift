@@ -23,8 +23,6 @@
 //	program. If not, see <http://www.perfect.org/AGPL_3_0_With_Perfect_Additional_Terms.txt>.
 //
 
-
-import Foundation
 import LibEvent
 
 #if os(Linux)
@@ -145,16 +143,16 @@ class LibEventBase {
 	
 	private func addDummyEvent() {
 		let event = LibEvent(base: self, fd: -1, what: EV_TIMEOUT, userData: nil) {
-			(fd:Int32, w:Int16, ud:AnyObject?) -> () in
+			[weak self] (fd:Int32, w:Int16, ud:AnyObject?) -> () in
 			
-			self.addDummyEvent()
+			self?.addDummyEvent()
 		}
 		event.add(1_000_000)
 	}
 	
 	private func triggerEventBaseLoop() {
-		Threading.dispatchBlock(baseDispatchQueue) {
-			self.eventBaseLoop()
+		Threading.dispatchBlock(baseDispatchQueue) { [weak self] in
+			self?.eventBaseLoop()
 		}
 	}
 	

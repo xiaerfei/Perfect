@@ -26,6 +26,7 @@
 
 import XCTest
 @testable import PerfectLib
+import cURL
 
 class PerfectLibTests: XCTestCase {
 	
@@ -40,18 +41,43 @@ class PerfectLibTests: XCTestCase {
 		super.tearDown()
 	}
 	
-	// !FIX! broken test
-	/*
+	func testJSONConvertibleObject() {
+		
+		class Test: JSONConvertibleObject {
+			
+			static let registerName = "test"
+			
+			var one = 0
+			override func setJSONValues(values: [String : Any]) {
+				self.one = getJSONValue("One", from: values, defaultValue: 42)
+			}
+			override func getJSONValues() -> [String : Any] {
+				return [JSONDecoding.objectIdentifierKey:Test.registerName, "One":1]
+			}
+		}
+		
+		JSONDecoding.registerJSONDecodable(Test.registerName, creator: { return Test() })
+		
+		do {
+			let encoded = try Test().jsonEncodedString()
+			let decoded = try encoded.jsonDecode() as? Test
+			
+			XCTAssert(decoded != nil)
+			
+			XCTAssert(decoded!.one == 1)
+		} catch {
+			XCTAssert(false, "Exception \(error)")
+		}
+	}
+	
 	func testJSONEncodeDecode() {
 		
-		let srcAry: [[String:JSONValue]] = [["i": -41451, "i2": 41451, "d": -42E+2, "t": true, "f": false, "n": JSONNull(), "a":[1, 2, 3, 4]], ["another":"one"]]
-		let decode = JSONDecode()
-		let encode = JSONEncode()
+		let srcAry: [[String:Any]] = [["i": -41451, "i2": 41451, "d": -42E+2, "t": true, "f": false, "n": nil as String?, "a":[1, 2, 3, 4]], ["another":"one"]]
 		var encoded = ""
-		var decoded: JSONArrayType?
+		var decoded: [Any]?
 		do {
 			
-			encoded = try encode.encode(srcAry)
+			encoded = try srcAry.jsonEncodedString()
 			
 		} catch let e {
 			XCTAssert(false, "Exception while encoding JSON \(e)")
@@ -60,7 +86,7 @@ class PerfectLibTests: XCTestCase {
 		
 		do {
 			
-			decoded = try decode.decode(encoded) as? JSONArrayType
+			decoded = try encoded.jsonDecode() as? [Any]
 			
 		} catch let e {
 			XCTAssert(false, "Exception while decoding JSON \(e)")
@@ -69,25 +95,21 @@ class PerfectLibTests: XCTestCase {
 		
 		XCTAssert(decoded != nil)
 		
-		let resAry = decoded!.array
+		let resAry = decoded!
 		
 		XCTAssert(srcAry.count == resAry.count)
 		
 		for index in 0..<srcAry.count {
 			
 			let d1 = srcAry[index]
-			let a2 = resAry[index] as? JSONDictionaryType
-			
-			XCTAssert(a2 != nil)
-			
-			let d2 = a2!.dictionary
+			let d2 = resAry[index] as? [String:Any]
 			
 			for (key, value) in d1 {
 				
-				let value2 = d2[key]
-				
+				let value2 = d2![key]
+
 				XCTAssert(value2 != nil)
-				
+
 				switch value {
 				case let i as Int:
 					XCTAssert(i == value2 as! Int)
@@ -97,7 +119,7 @@ class PerfectLibTests: XCTestCase {
 					XCTAssert(s == value2 as! String)
 				case let s as Bool:
 					XCTAssert(s == value2 as! Bool)
-					
+
 				default:
 					()
 					// does not go on to test sub-sub-elements
@@ -106,7 +128,6 @@ class PerfectLibTests: XCTestCase {
 			
 		}
 	}
-	*/
 	
 	func testSQLite() {
 		
@@ -663,8 +684,64 @@ class PerfectLibTests: XCTestCase {
 		print(bodyStr)
 	}
 	
-	
-	func testTCPSSLClient() {
+    func testCURLHeader() {
+        let url = "https://httpbin.org/headers"
+        let header = ("Accept", "application/json")
+        
+        let curl = CURL(url: url)
+        curl.setOption(CURLOPT_HTTPHEADER, s: "\(header.0): \(header.1)" )
+        let response = curl.performFully()
+        XCTAssert(response.0 == 0)
+        
+        let body = UTF8Encoding.encode(response.2)
+        do {
+            guard
+                let jsonMap = try body.jsonDecode() as? [String: Any],
+                let headers = jsonMap["headers"] as? [String: Any],
+                let accept = headers[header.0] as? String
+            else {
+                XCTAssert(false)
+                return
+            }
+            XCTAssertEqual(accept, header.1)
+        } catch let e {
+            XCTAssert(false, "Exception: \(e)")
+        }
+    }
+
+    func testCURLPost() {
+        let url = "https://httpbin.org/post"
+        let curl = CURL(url: url)
+        
+        curl.setOption(CURLOPT_POST, int: 1)
+        
+        let postParamString = "key1=value1&key2=value2"
+        let byteArray = UTF8Encoding.decode(postParamString)
+        curl.setOption(CURLOPT_POSTFIELDS, v: UnsafeMutablePointer<UInt8>(byteArray))
+        curl.setOption(CURLOPT_POSTFIELDSIZE, int: byteArray.count)
+        
+        let response = curl.performFully()
+        XCTAssert(response.0 == 0)
+        
+        let body = UTF8Encoding.encode(response.2)
+        do {
+            guard
+                let jsonMap = try body.jsonDecode() as? [String: Any],
+                let form = jsonMap["form"] as? [String: Any],
+                let value1 = form["key1"] as? String,
+                let value2 = form["key2"] as? String
+            else {
+                XCTAssert(false)
+                return
+            }
+            XCTAssertEqual(value1, "value1")
+            XCTAssertEqual(value2, "value2")
+        } catch let e {
+            XCTAssert(false, "Exception: \(e)")
+        }
+    }
+
+    func testTCPSSLClient() {
 		
 		let address = "www.treefrog.ca"
 		let requestString = [UInt8](("GET / HTTP/1.0\r\nHost: \(address)\r\n\r\n").utf8)
@@ -790,7 +867,7 @@ class PerfectLibTests: XCTestCase {
 	
 	func testStringByDeletingLastPathComponent() {
 		XCTAssert("/a/".stringByDeletingLastPathComponent == "/")
-		XCTAssert("/b/a".stringByDeletingLastPathComponent == "/b/")
+		XCTAssert("/b/a".stringByDeletingLastPathComponent == "/b")
 		XCTAssert("/".stringByDeletingLastPathComponent == "/")
 	}
 	
@@ -824,6 +901,59 @@ class PerfectLibTests: XCTestCase {
 				s.characters.split(Character("/")).map { String($0) } .count
 			}
 			
+		}
+	}
+	
+	func testStringHasPrefix() {
+		let s1 = "abcdefg"
+		
+		XCTAssert(s1.hasPrefix("abc"))
+		XCTAssert(!s1.hasPrefix("acb"))
+	}
+	
+	func testHPACKEncode() {
+		
+		let encoder = HPACKEncoder(maxCapacity: 256)
+		let b = Bytes()
+		
+		let headers = [
+			(":method", "POST"),
+			(":scheme", "https"),
+			(":path", "/3/device/00fc13adff785122b4ad28809a3420982341241421348097878e577c991de8f0"),
+			("host", "api.development.push.apple.com"),
+			("apns-id", "eabeae54-14a8-11e5-b60b-1697f925ec7b"),
+			("apns-expiration", "0"),
+			("apns-priority", "10"),
+			("content-length", "33")]
+		do {
+			for (n, v) in headers {
+				try encoder.encodeHeader(b, name: UTF8Encoding.decode(n), value: UTF8Encoding.decode(v), sensitive: false)
+			}
+			
+			class Listener: HeaderListener {
+				var headers = [(String, String)]()
+				func addHeader(name: [UInt8], value: [UInt8], sensitive: Bool) {
+					self.headers.append((UTF8Encoding.encode(name), UTF8Encoding.encode(value)))
+				}
+			}
+			
+			let decoder = HPACKDecoder(maxHeaderSize: 256, maxHeaderTableSize: 256)
+			let l = Listener()
+			try decoder.decode(b, headerListener: l)
+			
+			XCTAssert(l.headers.count == headers.count)
+			
+			for i in 0..<headers.count {
+				let h1 = headers[i]
+				let h2 = l.headers[i]
+				
+				XCTAssert(h1.0 == h2.0)
+				XCTAssert(h1.1 == h2.1)
+			}
+			
+		}
+		catch {
+			XCTAssert(false, "Exception \(error)")
 		}
 	}
 }
