@@ -5,22 +5,16 @@
 //  Created by Kyle Jessup on 2015-10-01.
 //	Copyright (C) 2015 PerfectlySoft, Inc.
 //
-//	This program is free software: you can redistribute it and/or modify
-//	it under the terms of the GNU Affero General Public License as
-//	published by the Free Software Foundation, either version 3 of the
-//	License, or (at your option) any later version, as supplemented by the
-//	Perfect Additional Terms.
+//===----------------------------------------------------------------------===//
 //
-//	This program is distributed in the hope that it will be useful,
-//	but WITHOUT ANY WARRANTY; without even the implied warranty of
-//	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-//	GNU Affero General Public License, as supplemented by the
-//	Perfect Additional Terms, for more details.
+// This source file is part of the Perfect.org open source project
 //
-//	You should have received a copy of the GNU Affero General Public License
-//	and the Perfect Additional Terms that immediately follow the terms and
-//	conditions of the GNU Affero General Public License along with this
-//	program. If not, see <http://www.perfect.org/AGPL_3_0_With_Perfect_Additional_Terms.txt>.
+// Copyright (c) 2015 - 2016 PerfectlySoft Inc. and the Perfect project authors
+// Licensed under Apache License v2.0
+//
+// See http://perfect.org/licensing.html for license information
+//
+//===----------------------------------------------------------------------===//
 //
 
 import PerfectLib
@@ -46,8 +40,6 @@ public enum MySQLOpt {
 		MYSQL_ENABLE_CLEARTEXT_PLUGIN,
 		MYSQL_OPT_CAN_HANDLE_EXPIRED_PASSWORDS
 }
-
-let _UNSIGNED_FLAG = UInt32(UNSIGNED_FLAG)
 
 public final class MySQL {
 	
@@ -627,6 +619,7 @@ public final class MySQLStmt {
 	}
 	
 	public final class Results: GeneratorType {
+        let _UNSIGNED_FLAG = UInt32(UNSIGNED_FLAG)
 		public typealias Element = [Any?]
 		
 		let stmt: MySQLStmt
@@ -725,6 +718,13 @@ public final class MySQLStmt {
 			return bind
 		}
 		
+		func bindBuffer<T>(sourceBind: MYSQL_BIND, type: T) -> MYSQL_BIND {
+			var bind = sourceBind
+			bind.buffer = UnsafeMutablePointer<()>(UnsafeMutablePointer<T>.alloc(1))
+			bind.buffer_length = UInt(sizeof(T))
+			return bind
+		}
+        
 		public func forEachRow(callback: Element -> ()) -> Bool {
 			
 			let scratch = UnsafeMutablePointer<()>(UnsafeMutablePointer<Int8>.alloc(0))
@@ -741,16 +741,39 @@ public final class MySQLStmt {
 				let genType = mysqlTypeToGeneralType(bind.buffer_type)
 				switch genType {
 				case .Double:
-					bind.buffer = UnsafeMutablePointer<()>(UnsafeMutablePointer<Double>.alloc(1))
-					bind.buffer_length = UInt(sizeof(Double))
+                    switch bind.buffer_type {
+                    case MYSQL_TYPE_FLOAT:
+                        bind = bindBuffer(bind, type: Float.self);
+                    case MYSQL_TYPE_DOUBLE:
+                        bind = bindBuffer(bind, type: Double.self);
+                    default: break
+                    }
                 case .Integer:
                     if (f.flags & _UNSIGNED_FLAG) == _UNSIGNED_FLAG {
                         bind.is_unsigned = 1
-                        bind.buffer = UnsafeMutablePointer<()>(UnsafeMutablePointer<UInt64>.alloc(1))
-                        bind.buffer_length = UInt(sizeof(UInt64))
+                        switch bind.buffer_type {
+                        case MYSQL_TYPE_LONGLONG:
+                            bind = bindBuffer(bind, type: CUnsignedLongLong.self);
+                        case MYSQL_TYPE_LONG, MYSQL_TYPE_INT24:
+                            bind = bindBuffer(bind, type: CUnsignedInt.self);
+                        case MYSQL_TYPE_SHORT:
+                            bind = bindBuffer(bind, type: CUnsignedShort.self);
+                        case MYSQL_TYPE_TINY:
+                            bind = bindBuffer(bind, type: CUnsignedChar.self);
+                        default: break
+                        }
                     } else {
-                        bind.buffer = UnsafeMutablePointer<()>(UnsafeMutablePointer<Int64>.alloc(1))
-                        bind.buffer_length = UInt(sizeof(Int64))
+                        switch bind.buffer_type {
+                        case MYSQL_TYPE_LONGLONG:
+                            bind = bindBuffer(bind, type: CLongLong.self);
+                        case MYSQL_TYPE_LONG, MYSQL_TYPE_INT24:
+                            bind = bindBuffer(bind, type: CInt.self);
+                        case MYSQL_TYPE_SHORT:
+                            bind = bindBuffer(bind, type: CShort.self);
+                        case MYSQL_TYPE_TINY:
+                            bind = bindBuffer(bind, type: CChar.self);
+                        default: break
+                        }
                     }
 				case .Bytes, .String, .Date, .Null:
 					bind.buffer = scratch
@@ -766,12 +789,38 @@ public final class MySQLStmt {
 					let genType = mysqlTypeToGeneralType(bind.buffer_type)
 					switch genType {
 					case .Double:
-						UnsafeMutablePointer<Double>(bind.buffer).dealloc(1)
+                        switch bind.buffer_type {
+                        case MYSQL_TYPE_FLOAT:
+                            UnsafeMutablePointer<Float>(bind.buffer).dealloc(1)
+                        case MYSQL_TYPE_DOUBLE:
+                            UnsafeMutablePointer<Double>(bind.buffer).dealloc(1)
+                        default: break
+                        }
 					case .Integer:
                         if bind.is_unsigned == 1 {
-                            UnsafeMutablePointer<UInt64>(bind.buffer).dealloc(1)
+                            switch bind.buffer_type {
+                            case MYSQL_TYPE_LONGLONG:
+                                UnsafeMutablePointer<CUnsignedLongLong>(bind.buffer).dealloc(1)
+                            case MYSQL_TYPE_LONG, MYSQL_TYPE_INT24:
+                                UnsafeMutablePointer<CUnsignedInt>(bind.buffer).dealloc(1)
+                            case MYSQL_TYPE_SHORT:
+                                UnsafeMutablePointer<CUnsignedShort>(bind.buffer).dealloc(1)
+                            case MYSQL_TYPE_TINY:
+                                UnsafeMutablePointer<CUnsignedChar>(bind.buffer).dealloc(1)
+                            default: break
+                            }
                         } else {
-                            UnsafeMutablePointer<Int64>(bind.buffer).dealloc(1)
+                            switch bind.buffer_type {
+                            case MYSQL_TYPE_LONGLONG:
+                                UnsafeMutablePointer<CLongLong>(bind.buffer).dealloc(1)
+                            case MYSQL_TYPE_LONG, MYSQL_TYPE_INT24:
+                                UnsafeMutablePointer<CInt>(bind.buffer).dealloc(1)
+                            case MYSQL_TYPE_SHORT:
+                                UnsafeMutablePointer<CShort>(bind.buffer).dealloc(1)
+                            case MYSQL_TYPE_TINY:
+                                UnsafeMutablePointer<CChar>(bind.buffer).dealloc(1)
+                            default: break
+                            }
                         }
 					case .Bytes, .String, .Date, .Null:
 						() // do nothing. these were cleaned right after use or not allocated at all
@@ -793,7 +842,7 @@ public final class MySQLStmt {
 					return false
 				}
 				
-				var row = [Any?]()
+				var row = Element()
 				
 				for i in 0..<numFields {
 					var bind = binds[i]
@@ -807,20 +856,48 @@ public final class MySQLStmt {
 						
 						switch genType {
 						case .Double:
-							if length == sizeof(Float) {
-								let f = UnsafeMutablePointer<Float>(bind.buffer).memory
-								row.append(Double(f))
-							} else {
-								let d = UnsafeMutablePointer<Double>(bind.buffer).memory
-								row.append(d)
-							}
+                            switch bind.buffer_type {
+                            case MYSQL_TYPE_FLOAT:
+                                let f = UnsafeMutablePointer<Float>(bind.buffer).memory
+                                row.append(f)
+                            case MYSQL_TYPE_DOUBLE:
+                                let f = UnsafeMutablePointer<Double>(bind.buffer).memory
+                                row.append(f)
+                            default: break
+                            }
 						case .Integer:
                             if bind.is_unsigned == 1 {
-                                let ui = UnsafeMutablePointer<UInt64>(bind.buffer).memory
-                                row.append(ui)
+                                switch bind.buffer_type {
+                                case MYSQL_TYPE_LONGLONG:
+                                    let i = UnsafeMutablePointer<CUnsignedLongLong>(bind.buffer).memory
+                                    row.append(i)
+                                case MYSQL_TYPE_LONG, MYSQL_TYPE_INT24:
+                                    let i = UnsafeMutablePointer<CUnsignedInt>(bind.buffer).memory
+                                    row.append(i)
+                                case MYSQL_TYPE_SHORT:
+                                    let i = UnsafeMutablePointer<CUnsignedShort>(bind.buffer).memory
+                                    row.append(i)
+                                case MYSQL_TYPE_TINY:
+                                    let i = UnsafeMutablePointer<CUnsignedChar>(bind.buffer).memory
+                                    row.append(i)
+                                default: break
+                                }
                             } else {
-                                let i = UnsafeMutablePointer<Int64>(bind.buffer).memory
-                                row.append(i)
+                                switch bind.buffer_type {
+                                case MYSQL_TYPE_LONGLONG:
+                                    let i = UnsafeMutablePointer<CLongLong>(bind.buffer).memory
+                                    row.append(i)
+                                case MYSQL_TYPE_LONG, MYSQL_TYPE_INT24:
+                                    let i = UnsafeMutablePointer<CInt>(bind.buffer).memory
+                                    row.append(i)
+                                case MYSQL_TYPE_SHORT:
+                                    let i = UnsafeMutablePointer<CShort>(bind.buffer).memory
+                                    row.append(i)
+                                case MYSQL_TYPE_TINY:
+                                    let i = UnsafeMutablePointer<CChar>(bind.buffer).memory
+                                    row.append(i)
+                                default: break
+                                }
                             }
 						case .Bytes:
 							
@@ -884,14 +961,6 @@ public final class MySQLStmt {
 			case .Null:
 				return bindToNull()
 			}
-		}
-		
-		func bindToDouble() -> MYSQL_BIND {
-			return bindToIntegral(MYSQL_TYPE_DOUBLE)
-		}
-		
-		func bindToInteger() -> MYSQL_BIND {
-			return bindToIntegral(MYSQL_TYPE_LONGLONG)
 		}
 		
 		func bindToBlob() -> MYSQL_BIND {

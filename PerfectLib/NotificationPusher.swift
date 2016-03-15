@@ -5,22 +5,16 @@
 //  Created by Kyle Jessup on 2016-02-16.
 //  Copyright © 2016 PerfectlySoft. All rights reserved.
 //
-//	This program is free software: you can redistribute it and/or modify
-//	it under the terms of the GNU Affero General Public License as
-//	published by the Free Software Foundation, either version 3 of the
-//	License, or (at your option) any later version, as supplemented by the
-//	Perfect Additional Terms.
+//===----------------------------------------------------------------------===//
 //
-//	This program is distributed in the hope that it will be useful,
-//	but WITHOUT ANY WARRANTY; without even the implied warranty of
-//	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-//	GNU Affero General Public License, as supplemented by the
-//	Perfect Additional Terms, for more details.
+// This source file is part of the Perfect.org open source project
 //
-//	You should have received a copy of the GNU Affero General Public License
-//	and the Perfect Additional Terms that immediately follow the terms and
-//	conditions of the GNU Affero General Public License along with this
-//	program. If not, see <http://www.perfect.org/AGPL_3_0_With_Perfect_Additional_Terms.txt>.
+// Copyright (c) 2015 - 2016 PerfectlySoft Inc. and the Perfect project authors
+// Licensed under Apache License v2.0
+//
+// See http://perfect.org/licensing.html for license information
+//
+//===----------------------------------------------------------------------===//
 //
 
 /**
@@ -60,9 +54,9 @@ let ary = [IOSNotificationItem.AlertBody("This is the message"), IOSNotification
 let n = NotificationPusher()
 
 n.pushIOS(configurationName, deviceToken: deviceId, expiration: 0, priority: 10, notificationItems: ary) {
-	errorMessage in
+	response in
 
-	print("\(errorMessage)")
+	print("NotificationResponse: \(response.code) \(response.body)")
 }
 
 // END - individual notification push
@@ -123,9 +117,13 @@ class NotificationHTTP2Client: HTTP2Client {
 	}
 }
 
+/// The response object given after a push attempt.
 public struct NotificationResponse {
+	/// The response code for the request.
 	public let code: Int
+	/// The response body data bytes.
 	public let body: [UInt8]
+	/// The body data bytes interpreted as JSON and decoded into a Dictionary.
 	public var jsonObjectBody: [String:Any] {
 		do {
 			if let json = try self.stringBody.jsonDecode() as? [String:Any] {
@@ -135,6 +133,7 @@ public struct NotificationResponse {
 		catch {}
 		return [String:Any]()
 	}
+	/// The body data bytes converted to String.
 	public var stringBody: String {
 		return UTF8Encoding.encode(self.body)
 	}

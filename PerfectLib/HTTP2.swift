@@ -5,22 +5,16 @@
 //  Created by Kyle Jessup on 2016-02-18.
 //  Copyright © 2016 PerfectlySoft. All rights reserved.
 //
-//	This program is free software: you can redistribute it and/or modify
-//	it under the terms of the GNU Affero General Public License as
-//	published by the Free Software Foundation, either version 3 of the
-//	License, or (at your option) any later version, as supplemented by the
-//	Perfect Additional Terms.
+//===----------------------------------------------------------------------===//
 //
-//	This program is distributed in the hope that it will be useful,
-//	but WITHOUT ANY WARRANTY; without even the implied warranty of
-//	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-//	GNU Affero General Public License, as supplemented by the
-//	Perfect Additional Terms, for more details.
+// This source file is part of the Perfect.org open source project
 //
-//	You should have received a copy of the GNU Affero General Public License
-//	and the Perfect Additional Terms that immediately follow the terms and
-//	conditions of the GNU Affero General Public License along with this
-//	program. If not, see <http://www.perfect.org/AGPL_3_0_With_Perfect_Additional_Terms.txt>.
+// Copyright (c) 2015 - 2016 PerfectlySoft Inc. and the Perfect project authors
+// Licensed under Apache License v2.0
+//
+// See http://perfect.org/licensing.html for license information
+//
+//===----------------------------------------------------------------------===//
 //
 
 // NOTE: This HTTP/2 client is competent enough to operate with Apple's push notification service, but
@@ -42,11 +36,11 @@ let HTTP2_WINDOW_UPDATE = UInt8(0x8)
 let HTTP2_CONTINUATION = UInt8(0x9)
 
 let HTTP2_END_STREAM = UInt8(0x1)
-let HTTP2_SETTINGS_ACK = HTTP2_END_STREAM
-let HTTP2_PING_ACK = HTTP2_END_STREAM
 let HTTP2_END_HEADERS = UInt8(0x4)
 let HTTP2_PADDED = UInt8(0x8)
 let HTTP2_FLAG_PRIORITY = UInt8(0x20)
+let HTTP2_SETTINGS_ACK = HTTP2_END_STREAM
+let HTTP2_PING_ACK = HTTP2_END_STREAM
 
 let SETTINGS_HEADER_TABLE_SIZE = UInt16(0x1)
 let SETTINGS_ENABLE_PUSH = UInt16(0x2)
@@ -62,6 +56,47 @@ public struct HTTP2Frame {
 	let streamId: UInt32 // 31-bit
 	var payload: [UInt8]?
 
+	var typeStr: String {
+		switch self.type {
+		case HTTP2_DATA:
+			return "HTTP2_DATA"
+		case HTTP2_HEADERS:
+			return "HTTP2_HEADERS"
+		case HTTP2_PRIORITY:
+			return "HTTP2_PRIORITY"
+		case HTTP2_RST_STREAM:
+			return "HTTP2_RST_STREAM"
+		case HTTP2_SETTINGS:
+			return "HTTP2_SETTINGS"
+		case HTTP2_PUSH_PROMISE:
+			return "HTTP2_PUSH_PROMISE"
+		case HTTP2_PING:
+			return "HTTP2_PING"
+		case HTTP2_GOAWAY:
+			return "HTTP2_GOAWAY"
+		case HTTP2_WINDOW_UPDATE:
+			return "HTTP2_WINDOW_UPDATE"
+		case HTTP2_CONTINUATION:
+			return "HTTP2_CONTINUATION"
+		default:
+			return "UNKNOWN_TYPE"
+		}
+	}
+	
+	var flagsStr: String {
+		var s = ""
+		if flags == 0 {
+			s.appendContentsOf("NO FLAGS")
+		}
+		if (flags & HTTP2_END_STREAM) != 0 {
+			s.appendContentsOf(" +HTTP2_END_STREAM")
+		}
+		if (flags & HTTP2_END_HEADERS) != 0 {
+			s.appendContentsOf(" +HTTP2_END_HEADERS")
+		}
+		return s
+	}
+	
 	func headerBytes() -> [UInt8] {
 		var data = [UInt8]()
 
@@ -130,8 +165,6 @@ public class HTTP2WebResponse: WebResponse, HeaderListener {
 		let n = UTF8Encoding.encode(name)
 		let v = UTF8Encoding.encode(value)
 
-//		print("\(n): \(v)")
-
 		switch n {
 		case ":status":
 			self.setStatus(Int(v) ?? -1, message: "")
@@ -151,7 +184,7 @@ public class HTTP2Client {
 	var timeoutSeconds = 5.0
 	var ssl = true
 	var streams = [UInt32:StreamState]()
-	var streamCounter = UInt32(0)
+	var streamCounter = UInt32(1)
 	
 	var encoder = HPACKEncoder()
 	
@@ -162,9 +195,10 @@ public class HTTP2Client {
 	var frameReadOK = false
 
 	var newStreamId: UInt32 {
-		streamCounter += 1
 		streams[streamCounter] = .None
-		return streamCounter
+		let s = streamCounter
+		streamCounter += 2
+		return s
 	}
 
 	public init() {
@@ -211,9 +245,9 @@ public class HTTP2Client {
 	func processSettingsPayload(b: Bytes) {
 		while b.availableExportBytes >= 6 {
 			let identifier = ntohs(b.export16Bits())
-			let value = ntohl(b.export32Bits())
+//			let value = ntohl(b.export32Bits())
 
-			print("Setting \(identifier) \(value)")
+//			print("Setting \(identifier) \(value)")
 			
 			switch identifier {
 			case SETTINGS_HEADER_TABLE_SIZE:
@@ -241,10 +275,10 @@ public class HTTP2Client {
 
 				if let frame = f {
 					
-					print("Read frame \(frame.type) \(frame.flags) \(frame.streamId)")
-					if frame.length > 0 {
-						print("Read frame payload \(UTF8Encoding.encode(frame.payload!))")
-					}
+//					print("Read frame \(frame.typeStr) \(frame.flagsStr) \(frame.streamId)")
+//					if frame.length > 0 {
+//						print("Read frame payload \(frame.length) \(UTF8Encoding.encode(frame.payload!))")
+//					}
 					
 					self?.frameReadEvent.doWithLock {
 
@@ -449,7 +483,7 @@ public class HTTP2Client {
 					}
 				default:
 					streamOpen = false
-					callback(nil, "Unexpected frame type \(frame.type)")
+					callback(nil, "Unexpected frame type \(frame.typeStr)")
 				}
 
 			} else {
@@ -596,7 +630,7 @@ public class HTTP2Client {
 		} else if !net.writeBytesFully(frame.headerBytes()) {
 			callback(false)
 		} else {
-			print("Wrote frame \(frame.type) \(frame.flags) \(frame.streamId)")
+//			print("Wrote frame \(frame.typeStr) \(frame.flagsStr) \(frame.streamId)")
 			if let p = frame.payload {
 				callback(net.writeBytesFully(p))
 			} else {
